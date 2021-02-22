@@ -1,0 +1,276 @@
+---
+title: "HW3"
+author: "Witzl_Peter"
+date: "12/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE, Message = F, Warning = F}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+```
+
+Adatok importalasa es elokeszitese
+````{R}
+setwd("C:/Users/Pelis Peti/Desktop/oko_HW")
+da = read.csv("bptempm.csv")
+library(data.table)
+d = data.table(da)
+d = d[ym>=194001][ym<=199912]
+````
+
+1.a
+````{R}
+library(DescTools)
+library(mFilter)
+library(aTSA)
+library(Hmisc)
+attach(d)
+plot(temp, type = "l")
+acf(temp)
+acf(temp, plot = F)
+#stacionariusnak tunik, azaz egy pont korul ingadozik, nincs unite rootja(egyseggyoke), viszont trendstacionarisnak tunik mivel egyadott ev adott honapjaban altalaban hasonlo atlaghomerseklet varhato, meg az abrabol is latszik hogy 6 vagy 12 honapos ismetlodes figyelheto meg.                         Biztosak azonban csak akkor lehetunk ha elvegeztuk a Augmented Dickey-Fuller Testet, ami mind az egyseggyokre, mind a trend stacionaritas valasz
+adf.test(temp)
+#a ADF teszt p ertekeibol azt arra a kovetkeztetesre jutunk hogy komoly esely van arra hogy egyseggyoke van az idosornak, mivel csak 10%on tudnank elvetni a 0hipotezist a h1(stationary) javara. Velemenyem szerint ilyenkor jobb biztosra menni es nem stacionaruskent kezelni, mivel arra is van megoldas, viszont a classzikus 5%-os szignifikancia szinten elvetnenk a 0hipotezist, azaz stacionarisnak tekinthetnenk, viszont Type 2: with drift no trend resz alacsony p ertekebol az latszik hogy ott a 0hipotezist egyertelmuen elvetjuk a h1(trendsacionalitas) javara, azaz a folyamat egyertelmuen trendstacionaris.                                        Ugyanakkor velemenyem szerint egyik teszt sem relevans esetunkben mivel cak 6 lagig irja ki a coeficenseket, itt viszont egyertelmuen 12 lagos ciklusok predesztinalhatok
+adf.test(temp, nlag = 12)
+#tul kicsi az adatbazis ahhoz, hogy lassuk a 12 laggal a valos szignifikanciat, igy celszeru a default 6 lagnal maradni, de a 6 laggal kapjuk a legkisebb p erteket( ez valszeg azert van mert 2 evszakonkent kb a trend 2 szelsoerteke kozott ingadozik a plot.)
+#Osszegzes: Csak a type 2 hipotezist tudtuk elvetni szoval csak trendstacionaris a data, igy nem kell differencialni az idosort eleg a trendet kivonni, ahhoz hogy korrigaljuk a Gauss_Markov feltevesek megserteset korrigaljuk. A korrigalassal ujra unbiasede tesszuk a modellt.
+````
+A scriptben kommenteltem inkabb az ertelmezes az ok_okozati osszefuggesek szemleletesebbe tetele vegett.
+
+1.b
+````{R}
+
+d[,  `:=`(jan = ifelse(d[ , substr(ym,5, 6) == "01"],1,0),
+          feb = ifelse(d[ , substr(ym,5, 6) == "02"],1,0),
+          mar = ifelse(d[ , substr(ym,5, 6) == "03"],1,0),
+          apr = ifelse(d[ , substr(ym,5, 6) == "04"],1,0),
+          may = ifelse(d[ , substr(ym,5, 6) == "05"],1,0),
+          jun = ifelse(d[ , substr(ym,5, 6) == "06"],1,0),
+          jul = ifelse(d[ , substr(ym,5, 6) == "07"],1,0),
+          aug = ifelse(d[ , substr(ym,5, 6) == "08"],1,0),
+          sep = ifelse(d[ , substr(ym,5, 6) == "09"],1,0),
+          okt = ifelse(d[ , substr(ym,5, 6) == "10"],1,0),
+          nov = ifelse(d[ , substr(ym,5, 6) == "11"],1,0),
+          dec = ifelse(d[ , substr(ym,5, 6) == "12"],1,0))]
+
+model1b = lm(temp~X+jan+feb+mar+apr+may+jun+jul+aug+sep+okt+nov+dec, data = d)
+summary(model1b)
+
+
+#Ha a feladat szerint mindet belerakjuk, akkor nem szignifikans a feb utana meg a december, velemenyem szerint erdemes lenne kivenni a modellbol legalabb 1 honapot (hogy teljesuljenek a gauss markov feltetelek(pl. no perfect collinearity)). Feb es dec modellbol valo kivetele utan az adjested R^2 ertek 1 tizezreleket javult(mive csokkent a k) a ket valtozo kivetele utan, szoval megeri kivenni azokat.
+model1b.1 = lm(temp~X+jan+mar+apr+may+jun+jul+aug+sep+okt+nov, data = d)
+summary(model1b.1)
+anova(model1b.1, model1b)
+#az f test alapjan viszont nem allithato hogy jobb lenne az egyik modell a masiknal(valoszinuleg azert mert tul kicsi a minta)
+
+#Van egy masik megoldas:
+model1b.2 = lm(temp~X+jan+feb+mar+apr+may+jun+jul+aug+sep+okt+nov+dec-1, data = d)
+summary(model1b.2)
+anova(model1b, model1b.2)
+#Az adjusted R^2 0.9815 -re javult 0.9456 rol, ami eleg jo (bar nem .ehet intercept nelkul rendesen ertelmezni az R^2et...), az intercept eltavolitasaval az osszes valtozot belerakhatjuk mivel nem egy dimenziobanszamolja("reference level coding" vagy "level means coding"), kb. azzal egyelo igy mintha tobb kulonallo regressziot futatnank mert igy orthogonal.
+#Ezzel a modszerrel lesz a legnagyobb az R^2 igy predictive szempontbol ez a legjobb
+
+#Ha a ADF test type 1 H0 hipoteziset is elfogadnank(en elfogadnam, mivel viszonylag alacsony a p ertek es velemenyem szerint mar 1940-tol 1999-ig is erezheto volt valamilyen szinten a globalis felmelegedes, valamint a sima ploton is eszreveheto a minimum homersekletekben egy novekvo trend, azaz non-stacionarius a data), akkor csak a homersekletvaltozast magyarazhatnank.
+````
+
+A homersekletvariaanciajat 95% ban magyarazza a ym es a honapokbol kepzett dummy valtozok
+Az intercept elhagyasaval az adjusted R^2 0.9815 -re javult 0.9456 rol, ami eleg jo, az intercept eltavolitasaval az osszes valtozot belerakhatjuk mivel nem egy dimenzioban vannak("reference level coding" vagy "level means coding"), kb. azzal egyelo igy mintha tobb kulonallo regressziot futatnank mert igy orthogonal.
+Ezzel a modszerrel lesz a legnagyobb az R^2 igy ez a legjobb
+
+
+c. Értelmezzük a modell paramétereit! :
+
+A feladat szerinti legelso modell parameterienek elemzese(amiben minden benne van):
+Az (Intercept) ertelmezese= nincs jelentosege mivel a ym nem vehet fel nullat, de ha a ym es mindegyik mas magyarazo valtozo 0 lenne, akkor -2.322e+01 fok lenne az atlaghomerseklet abban a honapban (a modell felrajzolasahoz segitseg mivel itt metszi az y tengelyt a fuggveny, de mivel 12 dimenzios a modell ezt senki nem rajzolja fel)
+A ym szignifikans a modellben es 1.257e-04erteket vesz fel, ami azt jelenti hogy nem csak szezonalisan ingadozik (mivel kontrollalva vannak a honapok a modellben), hanem egy altalanos novekedesi trend is megfigyelheto, ami azt jelenti hogy az 1.a feladat ADFtest type 1 reszenel el kellett volna fogadni a 0 hipotezist, ahogy mar korabban is jeleztem az ertelmezeseimben. A ym itt a szezonalis ingadozasok nelkuli hatast jelenti (minden mas valtozatlansaga mellett) az idoben egy honapot elore haladva az temp 1.257e-04-el no atlagosan.
+
+Minden mas valtozatlansaga mellett (tehat decemberhez kepest mert azt vette ki alapbol az R), ha januar van akkor a temp atlagosan -2.132e+00-al fog valtozni
+Minden mas valtozatlansaga mellett ha feb van akkor a temp atlagosan 6.184e-02 -al fog valtozni (de nem szignifikans a feb a modellben szoval nincs ertelme ertelmezni)
+Minden mas valtozatlansaga mellett ha marcius van akkor a temp atlagosan 6.184e-02 -al fog valtozni
+for i in model1b:
+print(paste("Minden mas valtozatlansaga mellett ha", i ,". honap van, akkor a temp varhatoan", model1b$coef[i+2], "-al fog valtozni")
+
+1.d
+````{R}
+library(lmtest)
+maradek = resid(model1b) 
+summary(maradek)
+#histogram(maradek) #normalisnak tekintheto az eloszlas
+PlotACF(maradek) # a plot alapjan valszeg nem autokorrelal, de csak ljung-box-al lehetunk biztosak
+forecast::checkresiduals(model1b)
+````
+Nem tudtuk elutasitani a nullhipotezis az autokurrelalitas javara igy nem autokorrelalnak a rezidumok
+
+1.e
+````{R}
+library(dynlm)
+tsd = ts(d)
+model1e.0 = dynlm(temp~L(temp)+X+jan+feb+mar+apr+may+jun+jul+aug+sep+okt+nov+dec, data = tsd) #ez is kivesz alapbol egy honapot mert autokorrelal
+summary(model1e.0)
+#elsorenduautoregressziv tagos regresszio
+#lagvariable letrehozasa:
+d[ , templ := shift(temp, 1L, fill = NA, type = "lag")]
+model1e = lm(temp~X+jan+feb+mar+apr+may+jun+jul+aug+sep+okt+nov+dec+templ, data = d)
+summary(model1e)  #ez is kivesz alapbol egy honapot mert autokorrelal
+identical(model1e ,model1e.0) # a ket modell egyforma
+myvecs =c("X", "jan", "mar", "apr", "may", "jun", "jul", "aug", "sep", "okt", "nov", "dec")
+model1e.1 = arima(temp, order = c(1,0,0), xreg = d[, ..myvecs]) #nem engedi ha beleveszem mind a 12 honapot, mert akkor perfectry collinear es ugy nem jo szoval ez a modszer nem jo a feladat szerint. amugy nyilvan nem mond hulyeseget R bacsi.
+model1e.1
+identical(model1e.1 ,model1e.0) # viszont az arima nem identikal, a tobbi 2-vel, ennek az az oka, hogy nem tokeletesek a kerekitesek es az hogy, az arima rajon hogy autoregressziv folyamatrol van szo, igy nem az eredmenyeket hanem a varhato ertekeket kapjuk vissza, de a 3 modell egyebkent azonos alapjaiban ugyan az.
+````
+1.f
+````{R}
+m = resid(model1e.1)
+PlotACF(m)
+forecast::checkresiduals(model1e.1)
+````
+Nem tudtuk elutasitani a nullhipotezist, that 0 az autokorrelacio, azaz nincs
+
+1.g
+````{R}
+model1g = arima(temp, order = c(2,0,0), xreg = d[, ..myvecs])
+summary(model1g)
+R_negyzet = cor(model1g.fitted),temp)^2
+````
+1.h
+````{R}
+summary(model1b)
+summary(model1e)
+summary(model1g)
+````
+Az elso modellel, azaz az elso b feladatban krealt modellel vagyok a legelegedettebb, mert a modellszelekcios kriteriumok abba az iranyba mutatnak hogy az a legjobb modell
+
+1.i
+````{R}
+adf.test(temp)
+summary(model1b)
+plot(temp)
+````
+Csak Budapesti adataink vannak szovala globalis felmelegedesre semmikepp nem lehetne bizonyitekunk, viszont a budapesten megfigyelheto a sesonalis ingadozasokon kivul egy folyamatos pozitiv trend is.
+#10%os szignifikancia szintet valasztunk akkor igen, mivel ugy nem tudjuk elutasitani az adf.test type 1 nullhipoteziset.(a minta novelesevel nem kene ilyen magas szignifikancia szintet valasztanunk)
+#Az elso modellben az X valtozora kapott Beta es annak szignifikanciaja bizonyitek arra hogy pozitiv trend figyelheto meg az adatokban a honapok valtozatlansaga mellett
+#Egy fapados ploton is latszik a pozitiv trend, ami egyreszt azt jelenti, hogz nonstatiarius a data, masreszt meg azt hogy megfigyelheto felmelegedes Budapesten.
+
+1.j
+````{R}
+#valamiert nem mukodik predictel, de valoszinuleg ugy kene, remelem igy is jo lesz
+y = c()
+myrange = 1:12
+for (i in myrange) {
+  y[i] = 0.6708475+0.0010480*(720+i)+model1b$coef[i+2]
+  y[12] = 0.6708475+0.0010480*(720+i)
+}
+y
+t = tail(da$temp, n = 12L)
+t
+
+plot(t,type="l",col="green", xlab = "months of 2000", ylab = "avg_monthly_temp", sub = "red = predicted value, green = real value", main = "model1b 2000 predicted and real value of avg temp") +
+lines(y,col="red")
+  
+
+summary(model1e)
+x = c()
+for (i in myrange) {
+  x[i] = -0.1883899+0.0007742*(720+i)+model1e$coef[i+2]
+  x[12] = 0.6708475+0.0010480*(720+i)
+}
+x
+
+plot(t,type="l",col="green", xlab = "months of 2000", ylab = "avg_monthly_temp", sub = "red = predicted value, green = real value", main = "model1e 2000 predicted and real value of avg temp") +
+lines(x,col="red")
+````
+
+
+2.
+`````{R}
+data(earns,package='wooldridge')
+e = data.table(earns)
+e = e[year>=1957]
+````
+
+2.a
+````{R}
+attach(e)
+model2a = lm(ghrwage~goutphr)
+````
+2.b
+````{R}
+summary(model2a)
+````
+(Mivel ez csak egy egy elemes regresszio ezt akar korrelacionak is mondhatnank.)
+intercept: ha a termelekenyseg novekedesi uteme nulla lenne, akkor akkor az oraber novekedesi uteme varhatoan -0.009547 lenne.
+beta1: Ha a termelekenyseg novekedesi uteme egy szazalekpontal none, akkor az oraber atlagosan 0,95%-al none meg
+
+2.c
+````{R}
+maradk = resid(model2a) 
+summary(maradk)
+PlotACF(maradk) # a plot alapjan valszeg nem autokorrelal, de csak Durbin-Watson tesztel lehetunk biztosak
+#a legjobb:
+forecast::checkresiduals(model2a)
+#histogram(maradk) #normalisnak tekintheto az eloszlas, igy hasznalhatjuk a D-W testet.
+dwtest(model2a, order.by = NULL, alternative ="two.sided",
+       iterations = 15, exact = NULL, tol = 1e-10, data = list())
+
+````
+Minden informacio arra utal hogy nem autokorrelalnak
+
+2.d
+````{R}
+#H0: B1=1, H1!=1
+t = (0.947988-1)/0.155472 #t.satisztik
+p.value = 2*pt(-abs(t), df=length(e)-1)
+t
+p.value
+````
+A 0.7433062 -es p ertek nagyon magas, igy nem tudjuk elutasitani a null hipotezist a H1 javara, tehat nincs okunk arra hogy azt feltetelezzuk, hogy B1 kulonbozik 1 tol.(kicsi minta lehet az ok)
+Ha autokorrelaltak lennenek az adatok akkor se az f se a t se semmilyen statisztika nem lenne valid, mivel nem teljesulnek a G-M kriteriumok
+
+2.e
+````{R}
+model2e = lm(ghrwage~goutph_1)
+````
+2.f
+````{R}
+summary(model2e)
+````
+
+Ertelmezes:
+intercept: ha a termelékenység növekedési ütemének elsőrendű
+osztott késleltetésű valtozoja nulla lenne, akkor  az oraber novekedesi uteme varhatoan -0.005771 lenne.
+beta1: Ha termelékenység elsőrendű
+osztott késleltetésű valtozojanak novekedesi uteme egy szazalekpontal none(ct), akkor az oraber atlagosan kb. exp(0.721903)-1 %p-al none meg
+
+2.g
+````{R}
+m2e = resid(model2e)
+PlotACF(maradk)
+forecast::checkresiduals(model2e)
+````
+Breusch-Godfrey test alapjan 1%on nem tudjuk elvetni a nullhipotezist tehat nem autokorrealnak a valtozok
+
+
+2.h
+````{R}
+summary(model2a)
+summary(model2e)
+cov(goutphr, goutph_1) #a kovariancia ketszereset ki kell vonni a varianciak osszegebol hogy megkapjuk az egyuttes varanciat
+#H0: B1azonnali+B1kesleltetett=1, H1!=1
+ti = ((0.721903+0.947988-2*6.772512e-05)-1)/(0.192346+0.155472) #t.satisztik
+p.value = 2*pt(-abs(ti), df=length(e)-1)
+ti
+p.value
+````
+A 0.07625837 -es p ertek nagyon magas, igy nem tudjuk elutasitani a null hipotezist a H1 javara, tehat nincs okunk arra hogy azt feltetelezzuk, hogy B1azonnali+B1kesleltetett kulonbozik 1 tol.
+ilyen kis mintaszamnal semmilyen hipotezist nem tudunk elvetni
+
+````
+
+
+
+
+
+
+
+
